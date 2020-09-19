@@ -25,7 +25,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         $strSOAP .= "</soap:Envelope>";
 
         // Send the request and check the response.
-        if (($response = $this->executeCurl($strSOAP, $action, env('SIRIRAJ_API_PATIENT_URL'))) === false) {
+        if (($response = $this->executeCurl($strSOAP, $action, config('app.SIMHIS_API_URL'))) === false) {
             return [
                 'ok' => false,
                 'status' => 500,
@@ -109,7 +109,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         $strSOAP .= "</soap:Envelope>";
 
         // Send the request and check the response.
-        if (($response = $this->executeCurl($strSOAP, $action, env('SIRIRAJ_API_PATIENT_URL'))) === false) {
+        if (($response = $this->executeCurl($strSOAP, $action, config('app.SIMHIS_API_URL'))) === false) {
             return [
                 'ok' => false,
                 'status' => 500,
@@ -163,7 +163,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         $strSOAP .= "</soap:Envelope>";
 
         // Send the request and check the response.
-        if (($response = $this->executeCurl($strSOAP, $action, env('SIRIRAJ_API_PATIENT_URL'))) === false) {
+        if (($response = $this->executeCurl($strSOAP, $action, config('app.SIMHIS_API_URL'))) === false) {
             return [
                 'ok' => false,
                 'status' => 500,
