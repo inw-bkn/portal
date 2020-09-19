@@ -175,6 +175,8 @@ return [
         App\Providers\EventServiceProvider::class,
         App\Providers\RouteServiceProvider::class,
 
+        App\Providers\PatientDataProvider::class,
+
     ],
 
     /*
@@ -228,5 +230,7 @@ return [
         'View' => Illuminate\Support\Facades\View::class,
 
     ],
+
+    'PATIENT_DATA_PROVIDER' => env('PATIENT_DATA_PROVIDER', 'App\APIs\FakePatientAPI')
 
 ];
