@@ -6,12 +6,15 @@ use App\Contracts\PatientDataAPI;
 
 class SIMHISPatientAPI implements PatientDataAPI
 {
+    protected $patient;
+    
     public function getPatient($hn)
     {
         $functionname = config('app.SIMHIS_PATIENT_FUNCNAME');
         $action = "http://tempuri.org/" . $functionname;
 
         // Compose SOAP string.
+        /*
         $strSOAP = "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
         $strSOAP .= "<soap:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">";
         $strSOAP .= "<soap:Body>";
@@ -23,9 +26,10 @@ class SIMHISPatientAPI implements PatientDataAPI
         $strSOAP .= "</" . $functionname . ">";
         $strSOAP .= "</soap:Body>";
         $strSOAP .= "</soap:Envelope>";
+        */
 
         // Send the request and check the response.
-        if (($response = $this->executeCurl($strSOAP, $action, config('app.SIMHIS_API_URL'))) === false) {
+        if (($response = $this->executeCurl($this->composeSOAP($functionname, 'hn', $hn), $action)) === false) {
             return [
                 'ok' => false,
                 'status' => 500,
@@ -49,42 +53,110 @@ class SIMHISPatientAPI implements PatientDataAPI
                         ->PatResult
                         ->children();
 
-        return $response;
-        // map json response to array $tmp.
-        foreach ($response as $key => $value) {
-            $tmp[$key] = implode("", json_decode(json_encode($value, true), true));
+        // return $response;
+        // // map json response to array $tmp.
+        // foreach ($response as $key => $value) {
+        //     $tmp[$key] = implode("", json_decode(json_encode($value, true), true));
+        // }
+
+        // $return_code_text = ['success.', 'hn not found.', 'hn cancel.', 'dead.', 'request error.', 'not allow.'];
+
+        // $reply['reply_code'] = $tmp['return_code'];
+        // $reply['reply_text'] = $return_code_text[$tmp['return_code']];
+        // >>> $a->getPatient(53926206);
+        // => SimpleXMLElement {#3187
+        //      +"return_code": "0",
+        //      +"request_computer_name": SimpleXMLElement {#3196},
+        //      +"hn": "53926206",
+        //      +"patient_name": "¹ÒÂ ÃÒàª¹ à»ÕèÂÁ¾ÅÍÂ",
+        //      +"title": "¹ÒÂ ",
+        //      +"patient_firstname": "ÃÒàª¹",
+        //      +"patient_middlename": SimpleXMLElement {#3197},
+        //      +"patient_surname": "à»ÕèÂÁ¾ÅÍÂ",
+        //      +"identity_card_no": "3620500464781",
+        //      +"birth_date": "25241106",
+        //      +"sex": "ªÒÂ",
+        //      +"race_name": "ä·Â",
+        //      +"marrier_name": SimpleXMLElement {#3198},
+        //      +"nationality_name": "ä·Â",
+        //      +"marriage_stat_name": SimpleXMLElement {#3199},
+        //      +"present_address": "ºéÒ¹àÅ¢·Õè 125/1 ËÁÙè·Õè 09",
+        //      +"present_prov_code": "620506",
+        //      +"tambon": "ÇÑ§ÂÒ§",
+        //      +"amphur": "¤ÅÍ§¢ÅØ§",
+        //      +"province": "¡Óá¾§à¾ªÃ",
+        //      +"zipcode": "62120",
+        //      +"present_tele_no": SimpleXMLElement {#3200},
+        //      +"mobile_no": "0992921532",
+        //      +"connected_name": "¾ÔÁ¾ìÅÀÑÊ ¾ÃËÁºØµÃ",
+        //      +"connected_address": SimpleXMLElement {#3201},
+        //      +"connected_tele_no": "0987475088",
+        //      +"connected_relation_name": "ºÔ´Ò",
+        //      +"patient_type": "13",
+        //      +"patient_type_name": "ºÑµÃ·Í§ âÃ§¾ÂÒºÒÅÍ×è¹",
+        //    }
+        // >>>
+
+        $data = (array) $response;
+
+        if ($data['return_code'] === '1' || $data['return_code'] !== '2' || $data['return_code'] === '5') {
+            return [
+                'ok' => true,
+                'found' => false,
+                'body' => 'not found or cancel or not allowed'
+            ];
         }
 
-        $return_code_text = ['success.', 'hn not found.', 'hn cancel.', 'dead.', 'request error.', 'not allow.'];
+        return [
+            'ok' => true,
+            'found' => true,
+            'alive' => $data['return_code'] === '0',
+            'hn' => $hn,
+            'dob' => !is_object($data['birth_date']) ? $this->castDateFormat(trim($data['birth_date'])) : null,
+            'race' => !is_object($data['race_name']) ? trim($data['race_name']) : null,
+            'title' => !is_object($data['title']) ? trim($data['title']) : null,
+            'tel_no' => !is_object($data['present_tele_no']) ? trim($data['present_tele_no'] . ' ' . (!is_object($data['mobile_no']) ? trim($data['mobile_no']) : '')) : null,
+            'gender' => !is_object($data['sex']) ? (trim($data['sex']) === 'หญิง' ? 'female' : 'male') : null,
+            'nation' => !is_object($data['nationality_name']) ? trim($data['nationality_name']) : null,
+            'spouse' => !is_object($data['marrier_name']) ? trim($data['marrier_name']) : null,
+            'address' => !is_object($data['present_address']) ? trim($data['present_address']) : null,
+            'location' => !is_object($data['zipcode']) ? trim($data['zipcode']) : null,
+            'province' => !is_object($data['province']) ? trim($data['province']) : null,
+            'last_name' => !is_object($data['patient_surname']) ? trim($data['patient_surname']) : null,
+            'first_name' => !is_object($data['patient_firstname']) ? trim($data['patient_firstname']) : null,
+            'middle_name' => !is_object($data['patient_middlename']) ? trim($data['patient_middlename']) : null,
+            'document_id' => !is_object($data['identity_card_no']) ? trim($data['identity_card_no']) : null,
+            'patient_name' => !is_object($data['patient_firstname']) ? trim($data['patient_firstname']) . ' ' . (!is_object($data['patient_surname']) ? trim($data['patient_surname']) : '') : null,
+            'insurance_name' => !is_object($data['patient_type_name']) ? trim($data['patient_type_name']) : null,
+            'marital_status_name' => !is_object($data['marriage_stat_name']) ? trim($data['marriage_stat_name']) : null,
+            'alternative_contact' => !is_object($data['connected_relation_name']) ? trim($data['connected_relation_name'] . ' ' . (!is_object($data['connected_name']) ? trim($data['connected_name']) : '') . ' ' . (!is_object($data['connected_tele_no']) ? $data['connected_tele_no'] : '')) : null,
+        ];
 
-        $reply['reply_code'] = $tmp['return_code'];
-        $reply['reply_text'] = $return_code_text[$tmp['return_code']];
+        // if ($tmp['return_code'] == 0) {
+        //     $reply['hn'] = $tmp['hn'];
+        //     $reply['dob'] = $this->castDateFormat(trim($tmp['birth_date']));
+        //     $reply['race'] = trim($tmp['race_name']);
+        //     $reply['title'] = trim($tmp['title']);
+        //     $reply['tel_no'] = trim($tmp['present_tele_no'] . " " . $tmp['mobile_no']);
+        //     $reply['gender'] = $tmp['sex'] == 'หญิง' ? 0 : 1;
+        //     $reply['nation'] = trim($tmp['nationality_name']);
+        //     $reply['spouse'] = trim($tmp['marrier_name']);
+        //     $reply['address'] = trim($tmp['present_address']);
+        //     $reply['location'] = trim($tmp['zipcode'] . " " . $tmp['tambon']);
+        //     $reply['province'] = trim($tmp['province']);
+        //     $reply['last_name'] = trim($tmp['patient_surname']);
+        //     $reply['first_name'] = trim($tmp['patient_firstname']);
+        //     $reply['middle_name'] = trim($tmp['patient_middlename']);
+        //     $reply['document_id'] = trim($tmp['identity_card_no']);
+        //     $reply['patient_name'] = trim($tmp['patient_firstname']) . ' ' . trim($tmp['patient_surname']);
+        //     $reply['insurance_name'] = trim($tmp['patient_type_name']);
+        //     $reply['marital_status_name'] = trim($tmp['marriage_stat_name']);
+        //     $reply['alternative_contact'] = trim($tmp['connected_relation_name'] . " " .
+        //         $tmp['connected_name'] . " " .
+        //         $tmp['connected_tele_no']);
+        // }
 
-        if ($tmp['return_code'] == 0) {
-            $reply['hn'] = $tmp['hn'];
-            $reply['dob'] = $this->castDateFormat(trim($tmp['birth_date']));
-            $reply['race'] = trim($tmp['race_name']);
-            $reply['title'] = trim($tmp['title']);
-            $reply['tel_no'] = trim($tmp['present_tele_no'] . " " . $tmp['mobile_no']);
-            $reply['gender'] = $tmp['sex'] == 'หญิง' ? 0 : 1;
-            $reply['nation'] = trim($tmp['nationality_name']);
-            $reply['spouse'] = trim($tmp['marrier_name']);
-            $reply['address'] = trim($tmp['present_address']);
-            $reply['location'] = trim($tmp['zipcode'] . " " . $tmp['tambon']);
-            $reply['province'] = trim($tmp['province']);
-            $reply['last_name'] = trim($tmp['patient_surname']);
-            $reply['first_name'] = trim($tmp['patient_firstname']);
-            $reply['middle_name'] = trim($tmp['patient_middlename']);
-            $reply['document_id'] = trim($tmp['identity_card_no']);
-            $reply['patient_name'] = trim($tmp['patient_firstname']) . ' ' . trim($tmp['patient_surname']);
-            $reply['insurance_name'] = trim($tmp['patient_type_name']);
-            $reply['marital_status_name'] = trim($tmp['marriage_stat_name']);
-            $reply['alternative_contact'] = trim($tmp['connected_relation_name'] . " " .
-                $tmp['connected_name'] . " " .
-                $tmp['connected_tele_no']);
-        }
-
-        return $reply;
+        // return $reply;
     }
 
     public function getAdmission($an)
@@ -96,6 +168,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         $action = "http://tempuri.org/" . $functionname;
 
         // Compose SOAP string.
+        /*
         $strSOAP = "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
         $strSOAP .= "<soap:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">";
         $strSOAP .= "<soap:Body>";
@@ -107,9 +180,10 @@ class SIMHISPatientAPI implements PatientDataAPI
         $strSOAP .= "</" . $functionname . ">";
         $strSOAP .= "</soap:Body>";
         $strSOAP .= "</soap:Envelope>";
+        */
 
         // Send the request and check the response.
-        if (($response = $this->executeCurl($strSOAP, $action, config('app.SIMHIS_API_URL'))) === false) {
+        if (($response = $this->executeCurl($this->composeSOAP($functionname, 'AN', $an), $action)) === false) {
             return [
                 'ok' => false,
                 'status' => 500,
@@ -134,11 +208,12 @@ class SIMHISPatientAPI implements PatientDataAPI
                         ->InpatientResult
                         ->children();
 
-        return $response;
-        foreach ($response as $key => $value)
-            $tmp[$key] = implode("", json_decode(json_encode($value, TRUE), TRUE));
+        // return $response;
+        // foreach ($response as $key => $value)
+        //     $tmp[$key] = implode("", json_decode(json_encode($value, TRUE), TRUE));
 
-        return $this->handleAdmitData($tmp);
+        // return $this->handleAdmitData($tmp);
+        return $this->handleAdmitData((array) $response);
     }
 
     public function getPatientRecentlyAdmit($hn)
@@ -150,6 +225,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         $action = "http://tempuri.org/" . $functionname;
 
         // Compose SOAP string.
+        /*
         $strSOAP = "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
         $strSOAP .= "<soap:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">";
         $strSOAP .= "<soap:Body>";
@@ -161,9 +237,10 @@ class SIMHISPatientAPI implements PatientDataAPI
         $strSOAP .= "</" . $functionname . ">";
         $strSOAP .= "</soap:Body>";
         $strSOAP .= "</soap:Envelope>";
+        */
 
         // Send the request and check the response.
-        if (($response = $this->executeCurl($strSOAP, $action, config('app.SIMHIS_API_URL'))) === false) {
+        if (($response = $this->executeCurl($this->composeSOAP($functionname, 'HN', $hn), $action)) === false) {
             return [
                 'ok' => false,
                 'status' => 500,
@@ -198,7 +275,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         }
     }
 
-    protected function executeCurl($strSOAP, $action, $url)
+    protected function executeCurl($strSOAP, $action)
     {
         $headers = [
             "Host: " . config('app.SIMHIS_SERVICE_HOST'),
@@ -210,7 +287,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         // Build the cURL session.
         $ch = curl_init();
         // curl_setopt($ch, CURLOPT_VERBOSE, true); // for debug
-        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_URL, config('app.SIMHIS_API_URL'));
         curl_setopt($ch, CURLOPT_TIMEOUT, 2); // set connection timeout.
         curl_setopt($ch, CURLOPT_POST, TRUE);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
@@ -229,45 +306,83 @@ class SIMHISPatientAPI implements PatientDataAPI
         return $response;
     }
 
-    protected function handleAdmitData($tmp)
+    protected function handleAdmitData($data)
     {
-        $return_code_text = ['success.', 'an not found.', 'an cancel.', 'dead.', 'requet error.', 'not allow.'];
-        if ($tmp['return_code'] != 0) {
+        // $return_code_text = ['success.', 'an not found.', 'an cancel.', 'dead.', 'requet error.', 'not allow.'];
+        // if ($tmp['return_code'] != 0) {
+        //     return [
+        //         'reply_code' => $tmp['return_code'],
+        //         'reply_text' => $return_code_text[$tmp['return_code']],
+        //     ];
+        // }
+
+        if ($data['return_code'] === '1' || $data['return_code'] !== '2' || $data['return_code'] === '5') {
             return [
-                'reply_code' => $tmp['return_code'],
-                'reply_text' => $return_code_text[$tmp['return_code']],
+                'ok' => true,
+                'found' => false,
+                'body' => 'not found or cancel or not allowed'
             ];
         }
 
-        $reply = [
-            'hn'  => $tmp['hn'],
-            'an'  => $tmp['an'],
-            'ward_name'  => trim($tmp['ward_name']),
-            'reply_code' => $tmp['return_code'],
-            'reply_text' => $return_code_text[$tmp['return_code']],
-            'datetime_dc' => $this->castSirirajDateTimeFormat(trim($tmp['discharge_date']), trim($tmp['discharge_time'])),
-            'patient_dept'  => $tmp['patient_dept'],
-            'datetime_admit' => $this->castSirirajDateTimeFormat(trim($tmp['admission_date']), trim($tmp['admission_time'])),
-            'attending_pln' => trim($tmp['refer_doctor_code']),
-            'attending_name'  => trim($tmp['doctor_name']),
-            'discharge_type'  => $tmp['discharge_type'],
-            'ward_name_short'  => trim($tmp['ward_brief_name']),
-            'discharge_status'  => $tmp['discharge_status'],
-            'patient_sub_dept'  => $tmp['patient_sub_dept'],
-            'patient_dept_name'  => $tmp['patient_dept_name'],
-            'discharge_type_name'  => $tmp['discharge_type_name'],
-            'discharge_status_name'  => $tmp['discharge_status_name'],
-            'patient_sub_dept_name'  => $tmp['patient_sub_dept_name'],
+        if (!$this->patient) {
+            $this->patient = $this->getPatient($data['hn']);
+        }
+
+        return [
+            'ok' => true,
+            'found' => true,
+            'alive' => $data['return_code'] === '0',
+            'hn' => $data['hn'],
+            'an' => $data['an'],
+            'dob' => $this->patient['dob'],
+            'gender' => $this->patient['gender'],
+            'patient_name' => $this->patient['title'] . ' ' . $patient['patient_name'],
+            'patient' => $this->patient,
+            'ward_name' => !is_object($data['ward_name']) ? trim($data['ward_name']) : null,
+            'ward_name_short' => !is_object($data['ward_brief_name']) ? trim($data['ward_brief_name']) : null,
+            'admitted_at' => $this->castSirirajDateTimeFormat(!is_object($data['admission_date']) ? trim($data['admission_date']) : '', !is_object($data['admission_time']) ? trim($data['admission_time']) : ''),
+            'discharged_at' => $this->castSirirajDateTimeFormat(!is_object($data['discharge_date']) ? trim($data['discharge_date']) : '', !is_object($data['discharge_time']) ? trim($data['discharge_time']) : ''),
+            'department' => !is_object($data['patient_dept']) ? trim($data['patient_dept']) : null,
+            'attending_pln' => !is_object($data['refer_doctor_code']) ? trim($data['refer_doctor_code']) : null,
+            'attending_name' => !is_object($data['doctor_name']) ? trim($data['doctor_name']) : null,
+            'discharge_type' => !is_object($data['discharge_type']) ? trim($data['discharge_type']) : null,
+            'discharge_type_name' => !is_object($data['discharge_type_name']) ? trim($data['discharge_type_name']) : null,
+            'discharge_status' => !is_object($data['discharge_status']) ? trim($data['discharge_status']) : null,
+            'discharge_status_name' => !is_object($data['discharge_status_name']) ? trim($data['discharge_status_name']) : null,
+            'patient_sub_dept' => !is_object($data['patient_sub_dept']) ? trim($data['patient_sub_dept']) : null,
+            'patient_dept_name' => !is_object($data['patient_dept_name']) ? trim($data['patient_dept_name']) : null,
+            'patient_sub_dept_name' => !is_object($data['patient_sub_dept_name']) ? trim($data['patient_sub_dept_name']) : null,
         ];
 
-        sleep(1);
-        $patient = $this->getPatient($tmp['hn']);
-        $reply['dob'] = $patient['dob'];
-        $reply['gender'] = $patient['gender'];
-        $reply['patient_name'] = $patient['title'] . ' ' . $patient['patient_name'];
-        $reply['patient'] = $patient;
+        // $reply = [
+        //     'hn'  => $tmp['hn'],
+        //     'an'  => $tmp['an'],
+        //     'ward_name'  => trim($tmp['ward_name']),
+        //     'reply_code' => $tmp['return_code'],
+        //     'reply_text' => $return_code_text[$tmp['return_code']],
+        //     'datetime_dc' => $this->castSirirajDateTimeFormat(trim($tmp['discharge_date']), trim($tmp['discharge_time'])),
+        //     'patient_dept'  => $tmp['patient_dept'],
+        //     'datetime_admit' => $this->castSirirajDateTimeFormat(trim($tmp['admission_date']), trim($tmp['admission_time'])),
+        //     'attending_pln' => trim($tmp['refer_doctor_code']),
+        //     'attending_name'  => trim($tmp['doctor_name']),
+        //     'discharge_type'  => $tmp['discharge_type'],
+        //     'ward_name_short'  => trim($tmp['ward_brief_name']),
+        //     'discharge_status'  => $tmp['discharge_status'],
+        //     'patient_sub_dept'  => $tmp['patient_sub_dept'],
+        //     'patient_dept_name'  => $tmp['patient_dept_name'],
+        //     'discharge_type_name'  => $tmp['discharge_type_name'],
+        //     'discharge_status_name'  => $tmp['discharge_status_name'],
+        //     'patient_sub_dept_name'  => $tmp['patient_sub_dept_name'],
+        // ];
 
-        return $reply;
+        // sleep(1);
+        // $patient = $this->getPatient($tmp['hn']);
+        // $reply['dob'] = $patient['dob'];
+        // $reply['gender'] = $patient['gender'];
+        // $reply['patient_name'] = $patient['title'] . ' ' . $patient['patient_name'];
+        // $reply['patient'] = $patient;
+
+        // return $reply;
     }
 
     private function castDateFormat($value)
@@ -297,5 +412,22 @@ class SIMHISPatientAPI implements PatientDataAPI
         }
 
         return null;
+    }
+
+    private function composeSOAP($functionname, $keyName, $keyValue)
+    {
+        $SOAPStr  = "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
+        $SOAPStr .= "<soap:Envelope xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\">";
+        $SOAPStr .= "<soap:Body>";
+        $SOAPStr .= "<" . $functionname . " xmlns=\"http://tempuri.org/\">";
+        $SOAPStr .= "<" . $keyName . ">" . $keyValue . "</" . $keyName . ">";
+        $SOAPStr .= "<UserName>" . config('app.SIMHIS_API_USERNAME') . "</UserName>";
+        $SOAPStr .= "<Password>" . config('app.SIMHIS_API_PASSWORD') . "</Password>";
+        $SOAPStr .= "<RequestComputerName></RequestComputerName>";
+        $SOAPStr .= "</" . $functionname . ">";
+        $SOAPStr .= "</soap:Body>";
+        $SOAPStr .= "</soap:Envelope>";
+
+        return $SOAPStr;
     }
 }
