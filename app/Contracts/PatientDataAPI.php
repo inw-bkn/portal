@@ -21,6 +21,14 @@ interface PatientDataAPI
     public function getAdmission($an);
 
     /**
+     * Query patient admissions from api by $hn.
+     *
+     * @param string
+     * @return array
+     */
+    public function getPatientAdmissions($hn);
+    
+    /**
      * Query lastest admission data from api by $hn.
      *
      * @param string

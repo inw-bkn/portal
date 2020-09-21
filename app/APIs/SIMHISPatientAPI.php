@@ -7,6 +7,12 @@ use App\Contracts\PatientDataAPI;
 class SIMHISPatientAPI implements PatientDataAPI
 {
     protected $patient;
+    protected $serverError = [
+                'ok' => false,
+                'status' => 500,
+                'error' => 'server',
+                'body' => 'Server Error'
+            ];
 
     public function getPatient($hn)
     {
@@ -14,12 +20,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         $action = "http://tempuri.org/" . $functionname;
 
         if (($response = $this->executeCurl($this->composeSOAP($functionname, 'hn', $hn), $action)) === false) {
-            return [
-                'ok' => false,
-                'status' => 500,
-                'error' => 'server',
-                'body' => 'Server Error'
-            ];
+            return $this->serverError;
         }
 
         $xml = simplexml_load_string($response);
@@ -39,18 +40,14 @@ class SIMHISPatientAPI implements PatientDataAPI
 
         $data = (array) $response;
 
-        if ($data['return_code'] === '1' || $data['return_code'] === '2' || $data['return_code'] === '5') {
-            return [
-                'ok' => true,
-                'found' => false,
-                'body' => 'not found or cancel or not allowed'
-            ];
+        if (($reply = $this->noResult($data['return_code'])) !== false) {
+            return $reply;
         }
 
         return [
             'ok' => true,
             'found' => true,
-            'alive' => $data['return_code'] === '0',
+            'alive' => $this->patientAlive($hn),
             'hn' => $hn,
             'patient_name' => trim((!is_object($data['title']) ? trim($data['title']) : '') . ' ' . (!is_object($data['patient_firstname']) ? trim($data['patient_firstname']) : '') . ' ' . (!is_object($data['patient_surname']) ? trim($data['patient_surname']) : '')),
             'title' => !is_object($data['title']) ? trim($data['title']) : null,
@@ -79,12 +76,7 @@ class SIMHISPatientAPI implements PatientDataAPI
         $action = "http://tempuri.org/" . $functionname;
 
         if (($response = $this->executeCurl($this->composeSOAP($functionname, 'AN', $an, 'UserName'), $action)) === false) {
-            return [
-                'ok' => false,
-                'status' => 500,
-                'error' => 'server',
-                'body' => 'Server Error'
-            ];
+            return $this->serverError;
         }
 
         $xml = simplexml_load_string($response);
@@ -102,21 +94,22 @@ class SIMHISPatientAPI implements PatientDataAPI
                         ->InpatientResult
                         ->children();
 
-        return $this->handleAdmitData((array) $response);
+        $data = (array) $response;
+        
+        if (($reply = $this->noResult($data['return_code'])) !== false) {
+            return $reply;
+        }
+
+        return $this->handleAdmitData($data);
     }
 
-    public function getPatientRecentlyAdmit($hn)
+    public function getPatientAdmissions($hn)
     {
         $functionname = config('app.SIMHIS_PATIENT_ADMISSIONS_FUNCNAME');
         $action = "http://tempuri.org/" . $functionname;
 
         if (($response = $this->executeCurl($this->composeSOAP($functionname, 'HN', $hn, 'UserName'), $action)) === false) {
-            return [
-                'ok' => false,
-                'status' => 500,
-                'error' => 'server',
-                'body' => 'Server Error'
-            ];
+            return $this->serverError;
         }
 
         $xml = simplexml_load_string($response);
@@ -132,31 +125,27 @@ class SIMHISPatientAPI implements PatientDataAPI
                         ->Result
                         ->children();
 
-        $admissions = array_map(function ($admission) { return (array) $admission; }, ((array) $response)['InpatientResult']);
-
+        $admissions = ((array) $response)['InpatientResult'];
+        $admissions = is_array($admissions) ?
+                        array_map(function ($admission) { return (array) $admission; }, $admissions) :
+                        [(array) $admissions];
+        
+        if (($reply = $this->noResult($admissions[0]['return_code'])) !== false) {
+            return $reply;
+        }
+        
+        $admissions = array_map(function ($admission) { return $this->handleAdmitData($admission); }, $admissions);
         return $admissions;
-        $data = (array) $admissions[0];
-        if ($data['return_code'] === '1' || $data['return_code'] === '2' || $data['return_code'] === '5') {
-            return [
-                'ok' => true,
-                'found' => false,
-                'body' => 'not found or cancel or not allowed'
-            ];
+    }
+
+    public function getPatientRecentlyAdmit($hn)
+    {
+        $admissions = $this->getPatientAdmissions($hn);
+        if (isset($admissions['found']) && $admissions['found'] === false) {
+            return $admissions;
         }
 
-        $data = [];
-        foreach($admissions as $admission) {
-            $data[] = 5;//(array)
-        }
-        if ($responses == null || count($responses) == 0) {
-            return ['reply_code' => 6, 'reply_text' => 'admission record not found'];
-        } else {
-            $response = $responses[count($responses) - 1]; // get lastest admission
-            foreach ($response as $key => $value)
-                $tmp[$key] = implode("", json_decode(json_encode($value, TRUE), TRUE));
-
-            return $this->handleAdmitData($tmp);
-        }
+        return collect($admissions)->last();
     }
 
     protected function executeCurl($strSOAP, $action)
@@ -168,7 +157,6 @@ class SIMHISPatientAPI implements PatientDataAPI
             "Transfer-Encoding: chunked",
         ];
 
-        // Build the cURL session.
         $ch = curl_init();
         // curl_setopt($ch, CURLOPT_VERBOSE, true); // for debug
         curl_setopt($ch, CURLOPT_URL, config('app.SIMHIS_API_URL'));
@@ -187,19 +175,11 @@ class SIMHISPatientAPI implements PatientDataAPI
             return false;
         }
 
-        return $response;
+        return str_replace('&#x', '', $response);
     }
 
     protected function handleAdmitData($data)
     {
-        if ($data['return_code'] === '1' || $data['return_code'] === '2' || $data['return_code'] === '5') {
-            return [
-                'ok' => true,
-                'found' => false,
-                'body' => 'not found or cancel or not allowed'
-            ];
-        }
-
         if (!$this->patient) {
             $this->patient = $this->getPatient($data['hn']);
         }
@@ -218,14 +198,12 @@ class SIMHISPatientAPI implements PatientDataAPI
             'ward_name_short' => !is_object($data['ward_brief_name']) ? trim($data['ward_brief_name']) : null,
             'admitted_at' => $this->castSirirajDateTimeFormat(!is_object($data['admission_date']) ? trim($data['admission_date']) : '', !is_object($data['admission_time']) ? trim($data['admission_time']) : ''),
             'discharged_at' => $this->castSirirajDateTimeFormat(!is_object($data['discharge_date']) ? trim($data['discharge_date']) : '', !is_object($data['discharge_time']) ? trim($data['discharge_time']) : ''),
-            'attending_name' => !is_object($data['doctor_name']) ? trim($data['doctor_name']) : null,
-            'attending_pln' => !is_object($data['refer_doctor_code']) ? trim($data['refer_doctor_code']) : null,
+            'attending' => !is_object($data['doctor_name']) ? trim($data['doctor_name']) : null,
+            'attending_license_no' => !is_object($data['refer_doctor_code']) ? trim($data['refer_doctor_code']) : null,
             'discharge_type' => !is_object($data['discharge_type_name']) ? trim($data['discharge_type_name']) : null,
             'discharge_status' => !is_object($data['discharge_status_name']) ? trim($data['discharge_status_name']) : null,
-            'department' => !is_object($data['patient_dept']) ? trim($data['patient_dept']) : null,
-            'patient_sub_dept' => !is_object($data['patient_sub_dept']) ? trim($data['patient_sub_dept']) : null,
-            'patient_dept_name' => !is_object($data['patient_dept_name']) ? trim($data['patient_dept_name']) : null,
-            'patient_sub_dept_name' => !is_object($data['patient_sub_dept_name']) ? trim($data['patient_sub_dept_name']) : null,
+            'department' => !is_object($data['patient_dept_name']) ? trim($data['patient_dept_name']) : null,
+            'division' => !is_object($data['patient_sub_dept_name']) ? trim($data['patient_sub_dept_name']) : null,
         ];
     }
 
@@ -273,5 +251,59 @@ class SIMHISPatientAPI implements PatientDataAPI
         $SOAPStr .= "</soap:Envelope>";
 
         return $SOAPStr;
+    }
+
+    private function noResult($code)
+    {
+        $reply = ['ok' => true, 'found' => false];
+        switch ($code) {
+            case '0': // found
+                return false;
+            case '3': // dead
+                return false;
+            case '1':
+                $reply['body'] = 'not found';
+                return $reply;
+            case '2':
+                $reply['body'] = 'cancel';
+                return $reply;
+            case '4':
+                $reply['body'] = 'error';
+                return $reply;
+            case '9':
+                $reply['body'] = 'not allowed';
+                return $reply;
+            default:
+                return false;
+        }
+    }
+
+    private function patientAlive($hn)
+    {
+        $functionname = config('app.SIMHIS_PATIENT_ALIVE_FUNCNAME');
+        $action = "http://tempuri.org/" . $functionname;
+
+        if (($response = $this->executeCurl($this->composeSOAP($functionname, 'hn', $hn), $action)) === false) {
+            return $this->serverError;
+        }
+
+        $xml = simplexml_load_string($response);
+        $namespaces = $xml->getNamespaces(true);
+        $response = $xml->children($namespaces['soap'])
+                        ->Body
+                        ->children($namespaces[""])
+                        ->SearchPatientDataResponse
+                        ->SearchPatientDataResult
+                        ->children($namespaces['diffgr'])
+                        ->diffgram
+                        ->children()
+                        ->Result
+                        ->children()
+                        ->PatResult
+                        ->children();
+
+        $data = (array) $response;
+
+        return $data['return_code'] === '0';
     }
 }

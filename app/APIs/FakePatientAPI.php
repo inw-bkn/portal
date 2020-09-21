@@ -15,58 +15,76 @@ class FakePatientAPI implements PatientDataAPI
         $this->faker = Factory::create();
     }
 
+    public function getPatient($hn)
+    {
+        $gender = ($hn % 2 === 0) ? 'female' : 'male' ;
+        $title = $this->faker->title($gender);
+        $fname = $gender ? $this->faker->firstNameFemale : $this->faker->firstNameMale;
+        $lname = $this->faker->lastName;
+        return [
+            'ok' => true,
+            'found' => true,
+            'alive' => true,
+            'hn' => $hn,
+            'patient_name' => "{$title} {$fname} {$lname}",
+            'title' => $title,
+            'first_name' => $fname,
+            'middle_name' => null,
+            'last_name' => $lname,
+            'document_id' => $this->faker->ean13,
+            'dob' => $this->faker->date('Y-m-d', Carbon::now()->subYears(19)),
+            'gender' => $gender,
+            'race' => 'นิวหยวก',
+            'nation' => 'นิวหยวก',
+            'tel_no' => $this->faker->e164PhoneNumber,
+            'spouse' => null,
+            'address' => $this->faker->streetAddress,
+            'postcode' => $this->faker->postcode,
+            'province' => $this->faker->city,
+            'insurance_name' => 'ผู้ป่วยทั่วไป',
+            'marital_status' => null,
+            'alternative_contact' => null,
+        ];
+    }
+
     public function getAdmission($an)
     {
         $gender = ($an % 2);
         $stay = $this->faker->numberBetween(1, 28); // random length of stay from 1 to 28 days
         $hn = $an - 666666;
-        $patient = $this->getPatient($hn)['profile'];
+        $patient = $this->getPatient($hn);
         return [
-            'reply_code' => 1,
-            'reply_text' => 'OK',
+            'ok' => true,
+            'found' => true,
+            'alive' => true,
+            'hn' => $patient['hn'],
             'an' => $an,
-            'hn' => $hn,
             'dob' => $patient['dob'],
-            'gender' => $patient['gender'] == 1 ? 'male':'female',
+            'gender' => $patient['gender'],
             'patient_name' => $patient['patient_name'],
-            'patient' => [
-                'reply_code' => 1,
-                'reply_text' => 'OK',
-                'hn' => $hn,
-                'profile' => [
-                    'document_id' => $patient['document_id'],
-                    'gender' => $patient['gender'],
-                    'dob' => $patient['dob'],
-                    'title' => $patient['title'],
-                    'first_name' => $patient['first_name'],
-                    'last_name' => $patient['last_name'],
-                    'tel_no' => $patient['tel_no'],
-                    'alternative_contact' => $patient['alternative_contact'],
-                    'insurance_name' => $patient['insurance_name'],
-                ]
-            ],
-            'encountered_at' => Carbon::now()->subDays($stay)->toDateTimeString(),
-            'dismissed_at' => Carbon::now()->subDays($this->faker->numberBetween(1, $stay))->toDateTimeString(),
+            'patient' => $patient,
+            'ward_name' => 'สามัญสำนึก',
+            'ward_name_short' => 'สามัญ',
+            'admitted_at' => Carbon::now()->subDays($stay)->toDateTimeString(),
+            'discharged_at' => Carbon::now()->subDays($this->faker->numberBetween(1, $stay))->toDateTimeString(),
+            'attending' => null,
+            'attending_license_no' => null,
+            'discharge_type' => 'WITH APPROVAL',
+            'discharge_status' => 'IMPROVED',
+            'department' => null,
+            'division' => null,
         ];
     }
-    public function getPatient($hn)
-    {
-        $gender = ($hn % 2 === 0) ? 'female' : 'male' ;
-        $data['reply_code'] = 1;
-        $data['reply_text'] = 'OK';
-        $data['hn'] = $hn;
-        $data['profile']['document_id'] = $this->faker->ean13; // random 13 digits
-        $data['profile']['gender'] = $gender;
-        $data['profile']['dob'] = $this->faker->date('Y-m-d', Carbon::now()->subYears(19));
-        $data['profile']['tel_no'] = $this->faker->e164PhoneNumber;
-        $data['profile']['alternative_contact'] = $this->faker->name($gender === 'female' ? 'male' : 'female') . ', ' . $this->faker->e164PhoneNumber;
-        $data['profile']['title'] = $this->faker->title($gender);
-        $data['profile']['first_name'] = $gender ? $this->faker->firstNameFemale : $this->faker->firstNameMale;
-        $data['profile']['last_name'] = $this->faker->lastName;
-        $data['profile']['patient_name'] = "{$data['profile']['title']} {$data['profile']['first_name']} {$data['profile']['last_name']}";
-        $data['profile']['insurance_name'] = 'UC';
 
-        return $data;
+    /**
+     * Query patient admissions from api by $hn.
+     *
+     * @param string
+     * @return array
+     */
+    public function getPatientAdmissions($hn)
+    {
+        return ['ok' => true, 'found' => false, 'body' => 'not found'];
     }
 
     /**
